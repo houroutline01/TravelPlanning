@@ -3,8 +3,12 @@ from audiorecorder import audiorecorder
 import pandas as pd
 import json
 import os
+import io
+import tempfile
 from dotenv import load_dotenv
 from openai import OpenAI
+from aip import AipSpeech
+from pydub import AudioSegment
 from database import init_db, register_user, authenticate_user, save_itinerary, get_user_itineraries, get_latest_itinerary, get_total_budget, add_expense, get_user_expenses, delete_expense, delete_itinerary
 
 load_dotenv()
@@ -23,6 +27,67 @@ if "api_base_url" not in st.session_state:
     st.session_state.api_base_url = os.getenv("API_BASE_URL", "")
 if "current_itinerary_id" not in st.session_state:
     st.session_state.current_itinerary_id = None
+
+
+def speech_to_text(audio_data) -> str:
+    try:
+        baidu_app_id = os.getenv("BAIDU_APP_ID", "")
+        baidu_api_key = os.getenv("BAIDU_API_KEY", "")
+        baidu_secret_key = os.getenv("BAIDU_SECRET_KEY", "")
+        
+        if not baidu_app_id or not baidu_api_key or not baidu_secret_key:
+            st.warning("请先在侧边栏配置百度语音识别API")
+            return ""
+        
+        client = AipSpeech(baidu_app_id, baidu_api_key, baidu_secret_key)
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_input:
+            temp_input.write(audio_data)
+            temp_input.flush()
+            temp_input_path = temp_input.name
+        
+        try:
+            audio = AudioSegment.from_file(temp_input_path)
+            
+            audio = audio.set_frame_rate(16000)
+            audio = audio.set_channels(1)
+            
+            target_dBFS = -20.0
+            change_in_dBFS = target_dBFS - audio.dBFS
+            audio = audio.apply_gain(change_in_dBFS)
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_output:
+                temp_output_path = temp_output.name
+            
+            audio.export(temp_output_path, format="wav", parameters=["-ar", "16000", "-ac", "1"])
+            
+            with open(temp_output_path, 'rb') as f:
+                wav_data = f.read()
+            
+            os.unlink(temp_output_path)
+        finally:
+            os.unlink(temp_input_path)
+        
+        result = client.asr(wav_data, 'wav', 16000, {
+            'dev_pid': 1537,
+            'rate': 16000,
+            'cuid': 'travel_planning_user',
+        })
+        
+        if result['err_no'] == 0:
+            recognized_text = result['result'][0]
+            
+            if len(recognized_text) < 3:
+                st.warning("识别结果过短，请重新录制清晰的语音")
+                return ""
+            
+            return recognized_text
+        else:
+            st.error(f"语音识别失败: {result['err_msg']}")
+            return ""
+    except Exception as e:
+        st.error(f"语音识别错误: {str(e)}")
+        return ""
 
 
 def call_llm(prompt: str) -> dict:
@@ -119,6 +184,19 @@ with st.sidebar:
         st.session_state.api_key = api_key
         st.session_state.api_base_url = api_base_url
         st.success("设置已保存")
+    
+    st.divider()
+    
+    st.subheader("百度语音识别设置")
+    baidu_app_id = st.text_input("百度 App ID", value=os.getenv("BAIDU_APP_ID", ""), type="password")
+    baidu_api_key = st.text_input("百度 API Key", value=os.getenv("BAIDU_API_KEY", ""), type="password")
+    baidu_secret_key = st.text_input("百度 Secret Key", value=os.getenv("BAIDU_SECRET_KEY", ""), type="password")
+    
+    if st.button("保存百度设置"):
+        os.environ["BAIDU_APP_ID"] = baidu_app_id
+        os.environ["BAIDU_API_KEY"] = baidu_api_key
+        os.environ["BAIDU_SECRET_KEY"] = baidu_secret_key
+        st.success("百度设置已保存")
 
 
 if not st.session_state.logged_in:
@@ -139,13 +217,23 @@ else:
         if input_method == "文本输入":
             user_input = st.text_area("请输入您的旅行需求", placeholder="例如：去日本5天，预算1万", height=100)
         else:
+            st.info("💡 录音提示：\n- 请在安静环境下录音\n- 靠近麦克风，说话清晰\n- 录音时长建议3-10秒\n- 避免使用填充词（如'嗯'、'啊'）")
             st.write("点击下方按钮开始录制语音")
             audio = audiorecorder("点击录制", "点击停止")
             
             if len(audio) > 0:
                 st.audio(audio.export().read())
                 st.success("语音录制完成！")
-                st.info("提示：语音转文字功能需要额外的 API 支持，当前仅支持文本输入")
+                
+                with st.spinner("正在识别语音..."):
+                    audio_data = audio.export().read()
+                    recognized_text = speech_to_text(audio_data)
+                    
+                    if recognized_text:
+                        st.success(f"识别结果：{recognized_text}")
+                        user_input = recognized_text
+                    else:
+                        st.warning("语音识别失败，请重试或使用文本输入")
         
         if st.button("生成行程") and user_input:
             if not st.session_state.api_key:

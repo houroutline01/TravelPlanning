@@ -4,3 +4,6 @@ openai
 sqlalchemy
 streamlit-audiorecorder
 python-dotenv
+baidu-aip
+pydub
+chardet
