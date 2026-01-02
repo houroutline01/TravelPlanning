@@ -1,0 +1,6 @@
+streamlit
+pandas
+openai
+sqlalchemy
+streamlit-audiorecorder
+python-dotenv
