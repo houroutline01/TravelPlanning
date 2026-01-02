@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import os
 from datetime import datetime
+from typing import Optional, List
 
 Base = declarative_base()
 
@@ -76,7 +77,7 @@ def register_user(username: str, password: str) -> bool:
         db.close()
 
 
-def authenticate_user(username: str, password: str) -> User | None:
+def authenticate_user(username: str, password: str) -> Optional[User]:
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == username, User.password == password).first()
@@ -85,7 +86,7 @@ def authenticate_user(username: str, password: str) -> User | None:
         db.close()
 
 
-def get_user_by_username(username: str) -> User | None:
+def get_user_by_username(username: str) -> Optional[User]:
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == username).first()
@@ -108,7 +109,7 @@ def save_itinerary(user_id: int, content: str, budget_log: str = None) -> bool:
         db.close()
 
 
-def get_user_itineraries(user_id: int) -> list[Itinerary]:
+def get_user_itineraries(user_id: int) -> List[Itinerary]:
     db = SessionLocal()
     try:
         itineraries = db.query(Itinerary).filter(Itinerary.user_id == user_id).all()
@@ -117,7 +118,7 @@ def get_user_itineraries(user_id: int) -> list[Itinerary]:
         db.close()
 
 
-def get_latest_itinerary(user_id: int) -> Itinerary | None:
+def get_latest_itinerary(user_id: int) -> Optional[Itinerary]:
     db = SessionLocal()
     try:
         itinerary = db.query(Itinerary).filter(Itinerary.user_id == user_id).order_by(Itinerary.id.desc()).first()
@@ -169,7 +170,7 @@ def add_expense(user_id: int, item: str, amount: float, itinerary_id: int = None
         db.close()
 
 
-def get_user_expenses(user_id: int, itinerary_id: int = None) -> list[Expense]:
+def get_user_expenses(user_id: int, itinerary_id: int = None) -> List[Expense]:
     db = SessionLocal()
     try:
         query = db.query(Expense).filter(Expense.user_id == user_id)
